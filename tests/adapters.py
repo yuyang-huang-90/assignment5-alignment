@@ -72,6 +72,11 @@ def run_tokenize_prompt_and_output(
             "response_mask": response_mask_batch[:, 1:],
     }
 
+def _compute_entropy(logits: torch.Tensor) -> torch.Tensor:
+    lsp = torch.logsumexp(logits, dim=-1)
+    probs = torch.softmax(logits, dim=-1)
+    expected_logits = (probs * logits).sum(dim=-1)
+    return lsp - expected_logits
 
 def run_get_response_log_probs(
     model: torch.nn.Module,
@@ -106,7 +111,20 @@ def run_get_response_log_probs(
                 entropy for each position (present only if
                 return_token_entropy=True).
     """
-    raise NotImplementedError
+    with torch.no_grad():
+        outputs = model(input_ids)
+        logits = outputs.logits
+
+    log_probs = torch.log_softmax(logits, dim=-1)
+
+    log_probs_for_labels = torch.gather(log_probs, dim=-1, index=labels.unsqueeze(-1)).squeeze(-1)
+
+    result = {"log_probs": log_probs_for_labels}
+
+    if return_token_entropy:
+        result["token_entropy"] = _compute_entropy(logits)
+    return result
+
 
 
 def run_compute_rollout_rewards(
