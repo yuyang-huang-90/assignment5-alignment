@@ -111,9 +111,8 @@ def run_get_response_log_probs(
                 entropy for each position (present only if
                 return_token_entropy=True).
     """
-    with torch.no_grad():
-        outputs = model(input_ids)
-        logits = outputs.logits
+    outputs = model(input_ids)
+    logits = outputs.logits
 
     log_probs = torch.log_softmax(logits, dim=-1)
 
@@ -413,7 +412,50 @@ def run_grpo_train_step(
                 Dict with metadata from the underlying loss call, gradient norm
                 before clipping, and any other statistics you might want to log.
     """
-    raise NotImplementedError
+    reward_tensor, reward_metadata = run_compute_rollout_rewards(
+        reward_fn, rollout_responses, repeated_ground_truths
+    )
+    advantages, raw_rewards, advantage_metadata = run_compute_group_normalized_rewards(
+        reward_tensor, group_size, baseline, advantage_eps, advantage_normalizer
+    )
+    tokenization_output = run_tokenize_prompt_and_output(
+        repeated_prompts, rollout_responses, tokenizer
+    )
+
+    optimizer.zero_grad()
+    microbatch_size = len(repeated_prompts) // gradient_accumulation_steps
+    total_loss = 0
+    metadata = {**reward_metadata, **advantage_metadata}
+
+    for i in range(0, len(repeated_prompts), microbatch_size):
+        input_ids = tokenization_output["input_ids"][i:i+microbatch_size]
+        labels = tokenization_output["labels"][i:i+microbatch_size]
+        response_mask = tokenization_output["response_mask"][i:i+microbatch_size]
+        log_probs_output = run_get_response_log_probs(model, input_ids, labels, False)
+        old_log_probs_microbatch = None if old_log_probs is None else old_log_probs[i:i+microbatch_size]
+        per_token_loss, policy_gradient_metadata = run_compute_policy_gradient_loss(
+            advantages[i:i+microbatch_size],
+            log_probs_output["log_probs"],
+            importance_reweighting_method,
+            old_log_probs_microbatch,
+            cliprange,
+            response_mask,
+        )
+        loss = run_aggregate_loss_across_microbatch(
+            per_token_loss, response_mask, loss_normalization, normalization_constant
+        )
+        loss = loss / gradient_accumulation_steps
+        total_loss = total_loss + loss.detach()
+        loss.backward()
+
+    metadata = {**metadata, **policy_gradient_metadata}
+    if max_grad_norm is not None:
+        metadata["grad_norm_before_clipping"] = torch.nn.utils.clip_grad_norm_(
+            model.parameters(), max_grad_norm, norm_type=2.0
+        ).item()
+    optimizer.step()
+    optimizer.zero_grad()
+    return total_loss.detach(), metadata
 
 
 """
