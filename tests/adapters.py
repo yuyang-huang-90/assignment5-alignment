@@ -282,6 +282,13 @@ def run_compute_policy_gradient_loss(
                 Statistics from the underlying loss call, such as
                 clip-fraction components.
     """
+    batch_size, _ = policy_log_probs.shape
+    rewards_or_advantages = raw_rewards_or_advantages.view(batch_size, 1)
+    metadata = {}
+    if importance_reweighting_method == "none":
+        per_token_loss = -rewards_or_advantages * policy_log_probs
+        return per_token_loss, metadata
+
     raise NotImplementedError
 
 
