@@ -156,7 +156,21 @@ def run_compute_rollout_rewards(
                 Reward statistics to log. At minimum, include the mean total
                 and format rewards over the rollout batch.
     """
-    raise NotImplementedError
+    raw_rewards = []
+    total_reward = 0.0
+    format_reward = 0.0
+    for response, gt in zip(rollout_responses, repeated_ground_truths):
+        reward_dict = reward_fn(response, gt)
+        raw_rewards.append(reward_dict["reward"])
+        total_reward += reward_dict["reward"]
+        format_reward += reward_dict["format_reward"]
+
+    raw_rewards_tensor = torch.tensor(raw_rewards, dtype=torch.float)
+    metadata = {
+        "mean_total_reward": total_reward / len(rollout_responses),
+        "mean_format_reward": format_reward / len(rollout_responses),
+    }
+    return raw_rewards_tensor, metadata
 
 
 def run_compute_group_normalized_rewards(
