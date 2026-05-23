@@ -321,8 +321,11 @@ def run_aggregate_loss_across_microbatch(
             A scalar containing the average loss. Make sure you can later call
             backward on this loss.
     """
+    if loss_normalization == "sequence":
+        loss = (per_token_policy_gradient_loss * mask).sum(dim=1) / (mask.sum(dim=1) + 1e-8)
+        loss = loss.mean()
+        return loss
     raise NotImplementedError
-
 
 def run_grpo_train_step(
     model: torch.nn.Module,
