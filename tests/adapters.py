@@ -212,7 +212,30 @@ def run_compute_group_normalized_rewards(
                 your choice of other statistics to log (e.g. mean, std, max/min
                 of rewards).
     """
-    raise NotImplementedError
+    advantages = raw_rewards.clone()
+
+    if baseline == "mean":
+        for i in range(0, len(raw_rewards), group_size):
+            group_mean = raw_rewards[i:i+group_size].mean()
+            advantages[i:i+group_size] -= group_mean
+    if advantage_normalizer == "std":
+        for i in range(0, len(raw_rewards), group_size):
+            group_std = raw_rewards[i:i+group_size].std()
+            advantages[i:i+group_size] /= (group_std + advantage_eps)
+    elif advantage_normalizer == "mean":
+        for i in range(0, len(raw_rewards), group_size):
+            group_mean = raw_rewards[i:i+group_size].mean()
+            advantages[i:i+group_size] /= (group_mean + advantage_eps)
+
+    metadata = {
+        "mean_reward": raw_rewards.mean().item(),
+        "std_reward": raw_rewards.std().item(),
+        "max_reward": raw_rewards.max().item(),
+        "min_reward": raw_rewards.min().item(),
+    }
+
+    return advantages, raw_rewards, metadata
+
 
 
 def run_compute_policy_gradient_loss(
