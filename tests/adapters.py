@@ -287,6 +287,31 @@ def run_compute_policy_gradient_loss(
     if importance_reweighting_method == "none":
         per_token_loss = -rewards_or_advantages * policy_log_probs
         return per_token_loss, metadata
+    elif importance_reweighting_method == "noclip":
+        ratios = torch.exp(policy_log_probs - old_log_probs)
+        per_token_loss = -rewards_or_advantages * ratios
+        return per_token_loss, metadata
+    elif importance_reweighting_method == "grpo":
+        ratios = torch.exp(policy_log_probs - old_log_probs)
+        clipped_ratios = torch.clamp(ratios, 1-cliprange, 1+cliprange)
+        per_token_loss = -torch.min(rewards_or_advantages * clipped_ratios, rewards_or_advantages * ratios)
+        metadata["grpo_clip_fraction"] = ((ratios - clipped_ratios).abs() > 1e-8).float().mean().item()
+        return per_token_loss, metadata
+    elif importance_reweighting_method == "gspo":
+        log_ratios = policy_log_probs - old_log_probs
+        if response_mask is not None:
+            seq_log_ratios = (log_ratios * response_mask).sum(dim=1) / (response_mask.sum(dim=1) + 1e-8)
+        else:
+            seq_log_ratios = log_ratios.mean(dim=1)
+        seq_ratios = torch.exp(seq_log_ratios)
+        clipped_seq_ratios = torch.clamp(seq_ratios, 1-cliprange, 1+cliprange)
+        per_sequence_loss = -torch.min(
+            rewards_or_advantages * clipped_seq_ratios.view(-1, 1),
+            rewards_or_advantages * seq_ratios.view(-1, 1),
+        )
+        per_token_loss = per_sequence_loss.expand_as(policy_log_probs)
+        metadata["gspo_clip_fraction"] = ((seq_ratios - clipped_seq_ratios).abs() > 1e-8).float().mean().item()
+        return per_token_loss, metadata
 
     raise NotImplementedError
 
