@@ -324,6 +324,9 @@ def run_aggregate_loss_across_microbatch(
         loss = (per_token_policy_gradient_loss * mask).sum(dim=1) / (mask.sum(dim=1) + 1e-8)
         loss = loss.mean()
         return loss
+    elif loss_normalization == "constant":
+        loss = (per_token_policy_gradient_loss * mask).sum() / normalization_constant
+        return loss
     raise NotImplementedError
 
 def run_grpo_train_step(
@@ -444,7 +447,10 @@ def run_grpo_train_step(
         loss = run_aggregate_loss_across_microbatch(
             per_token_loss, response_mask, loss_normalization, normalization_constant
         )
-        loss = loss / gradient_accumulation_steps
+        if loss_normalization == "sequence":
+            loss = loss / gradient_accumulation_steps
+        else:
+            loss = loss
         total_loss = total_loss + loss.detach()
         loss.backward()
 
